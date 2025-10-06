@@ -28,10 +28,12 @@
 #include "avr_eeprom.h"
 #include "avr_watchdog.h"
 #include "avr_extint.h"
+#include "avr_flash.h"
 #include "avr_ioport.h"
 #include "avr_adc.h"
 #include "avr_timer.h"
 #include "avr_acomp.h"
+#include "avr_usi.h"
 
 void tx4_init(struct avr_t * avr);
 void tx4_reset(struct avr_t * avr);
@@ -43,11 +45,13 @@ struct mcu_t {
     avr_t core;
     avr_eeprom_t     eeprom;
     avr_watchdog_t    watchdog;
+    avr_flash_t 	selfprog;
     avr_extint_t    extint;
     avr_ioport_t    porta, portb;
     avr_acomp_t		acomp;
     avr_adc_t        adc;
     avr_timer_t    timer0, timer1;
+	avr_usi_t	   usi;
 };
 
 #ifdef SIM_CORENAME
@@ -69,6 +73,15 @@ const struct mcu_t SIM_CORENAME = {
     },
     AVR_EEPROM_DECLARE(EE_RDY_vect),
     AVR_WATCHDOG_DECLARE(WDTCSR, WDT_vect),
+    .selfprog = {
+		.flags = 0,
+		.r_spm = SPMCSR,
+		.spm_pagesize = SPM_PAGESIZE,
+		.selfprgen = AVR_IO_REGBIT(SPMCSR, SPMEN),
+		.pgers = AVR_IO_REGBIT(SPMCSR, PGERS),
+		.pgwrt = AVR_IO_REGBIT(SPMCSR, PGWRT),
+		.blbset = AVR_IO_REGBIT(SPMCSR, RFLB),
+	},
     .extint = {
         AVR_EXTINT_TINY_DECLARE(0, 'B', PB2, GIFR),
     },
@@ -298,6 +311,7 @@ const struct mcu_t SIM_CORENAME = {
             },
         },
     },
+	AVR_USI_DECLARE('A', PORTA, 6, 5, 4)
 };
 #endif /* SIM_CORENAME */
 

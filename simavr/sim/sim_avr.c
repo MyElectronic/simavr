@@ -97,6 +97,8 @@ int
 avr_init(
 		avr_t * avr)
 {
+	static const char *names[] = { ">avr.core.bad_opcode", }; // IRQs
+
 	avr->flash = malloc(avr->flashend + 4);
 	memset(avr->flash, 0xff, avr->flashend + 1);
 	*((uint16_t*)&avr->flash[avr->flashend + 1]) = AVR_OVERFLOW_OPCODE;
@@ -105,13 +107,28 @@ avr_init(
 	memset(avr->data, 0, avr->ramend + 1);
 #ifdef CONFIG_SIMAVR_TRACE
 	avr->trace_data = calloc(1, sizeof(struct avr_trace_data_t));
+        avr->trace_data->data_names_size = avr->ioend + 1;
 #endif
-
+	avr->data_names = calloc(avr->ioend + 1, sizeof (char *));
+	/* put "something" in the serial number */
+#ifdef _WIN32
+	uint32_t r = getpid() + (uint32_t) rand();
+#else
+	uint32_t r = getpid() + random();
+#endif
+	for (int i = 0; i < ARRAY_SIZE(avr->serial); i++)
+		avr->serial[i] = r >> (i * 3);
 	AVR_LOG(avr, LOG_TRACE, "%s init\n", avr->mmcu);
+	AVR_LOG(avr, LOG_TRACE, "   serial %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			avr->serial[0], avr->serial[1], avr->serial[2], avr->serial[3],
+			avr->serial[4], avr->serial[5], avr->serial[6], avr->serial[7],
+			avr->serial[8]);
 
 	// cpu is in limbo before init is finished.
 	avr->state = cpu_Limbo;
 	avr->frequency = 1000000;	// can be overridden via avr_mcu_section
+	avr->irq_pool.avr = avr;
+	avr->irq = avr_alloc_irq(&avr->irq_pool, 0, AVR_CORE_IRQ_COUNT, names);
 	avr_cmd_init(avr);
 	avr_interrupt_init(avr);
 	if (avr->custom.init)
@@ -123,7 +140,7 @@ avr_init(
 	avr->sleep = avr_callback_sleep_raw;
 	// number of address bytes to push/pull on/off the stack
 	avr->address_size = avr->eind ? 3 : 2;
-	avr->log = 1;
+	avr->log = LOG_ERROR;
 	avr_reset(avr);
 	avr_regbit_set(avr, avr->reset_flags.porf);		// by  default set to power-on reset
 	return 0;
@@ -162,6 +179,7 @@ avr_reset(
 {
 	AVR_LOG(avr, LOG_TRACE, "%s reset\n", avr->mmcu);
 
+	avr->resetting = 1;
 	avr->state = cpu_Running;
 	for(int i = 0x20; i <= avr->ioend; i++)
 		avr->data[i] = 0;
@@ -180,6 +198,7 @@ avr_reset(
 		port = port->next;
 	}
 	avr->cycle = 0; // Prevent crash
+	avr->resetting = 0;
 }
 
 void
@@ -196,6 +215,47 @@ avr_sadly_crashed(
 	}
 	if (!avr->gdb)
 		avr->state = cpu_Crashed;
+}
+
+/* Get a pointer to a core IRQ. */
+
+avr_irq_t *
+avr_get_core_irq(
+		avr_t * avr,
+		int     irq_no)
+{
+	return avr->irq + irq_no;
+}
+
+/* Get a pointer to a memory IRQ. */
+
+avr_irq_t *avr_get_memory_irq(avr_t * avr, uint16_t addr, int is16)
+{
+	avr_irq_t  *irq;
+	int			width;
+	char        name[32];
+	const char *names[1] = {name};
+
+	if (addr <= 31 || addr > avr->ramend) {
+		AVR_LOG(avr, LOG_ERROR,
+				"Address %#04x out of range for SRAM trace.\n", addr);
+		return NULL;
+	}
+	if (avr->sram_tracepoint_count >= ARRAY_SIZE(avr->sram_tracepoint)) {
+		AVR_LOG(avr, LOG_ERROR, "Too many SRAM traces (limit = %d)\n",
+				ARRAY_SIZE(avr->sram_tracepoint));
+		return NULL;
+	}
+
+	width = is16 ? 16 : 8;
+	sprintf(name, ">%dSRAM_tracepoint_%d", width, avr->sram_tracepoint_count);
+	irq = avr_alloc_irq(&avr->irq_pool, 0, 1, names);
+	if (!irq)
+		return NULL;
+	avr->sram_tracepoint[avr->sram_tracepoint_count].irq = irq;
+	avr->sram_tracepoint[avr->sram_tracepoint_count].width = width;
+	avr->sram_tracepoint[avr->sram_tracepoint_count++].addr = addr;
+	return irq;
 }
 
 void

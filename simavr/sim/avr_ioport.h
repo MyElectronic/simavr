@@ -33,6 +33,7 @@ enum {
 	IOPORT_IRQ_PIN1,IOPORT_IRQ_PIN2,IOPORT_IRQ_PIN3,IOPORT_IRQ_PIN4,
 	IOPORT_IRQ_PIN5,IOPORT_IRQ_PIN6,IOPORT_IRQ_PIN7,
 	IOPORT_IRQ_PIN_ALL,
+	IOPORT_IRQ_PIN_ALL_IN,
 	IOPORT_IRQ_DIRECTION_ALL,
 	IOPORT_IRQ_REG_PORT,
 	IOPORT_IRQ_REG_PIN,
@@ -59,7 +60,7 @@ typedef struct avr_ioport_getirq_t {
  *
  * for (int i = 'A'; i <= 'F'; i++) {
  * 	avr_ioport_state_t state;
- * 	if (avr_ioctl(AVR_IOCTL_IOPORT_GETSTATE(i), &state) == 0)
+ * 	if (avr_ioctl(avr, AVR_IOCTL_IOPORT_GETSTATE(i), &state) == 0)
  * 		printf("PORT%c %02x DDR %02x PIN %02x\n",
  * 			state.name, state.port, state.ddr, state.pin);
  * }
@@ -111,6 +112,8 @@ typedef struct avr_ioport_t {
 
 	uint8_t 	mask;
 	int8_t 		shift;
+
+	uint8_t 	irqing;		// Suppress chatter during IRQ generation.
 
 	// This represent the default IRQ value when
 	// the port is set as input.

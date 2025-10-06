@@ -26,15 +26,16 @@
 extern "C" {
 #endif
 
-#ifdef NO_COLOR
-	#define FONT_GREEN
-	#define FONT_RED
-	#define FONT_DEFAULT
-#else
-	#define FONT_GREEN		"\e[32m"
-	#define FONT_RED		"\e[31m"
-	#define FONT_DEFAULT	"\e[0m"
-#endif
+/*
+ * ANSI escape codes for colored output
+ */
+struct text_colors {
+	const char *green;
+	const char *red;
+	const char *normal;
+};
+
+extern struct text_colors simavr_font;
 
 /*
  * Instruction decoder, run ONE instruction
@@ -48,12 +49,12 @@ uint16_t _avr_sp_get(avr_t * avr);
 void _avr_sp_set(avr_t * avr, uint16_t sp);
 int _avr_push_addr(avr_t * avr, avr_flashaddr_t addr);
 
-#if CONFIG_SIMAVR_TRACE
-
 /*
  * Get a "pretty" register name
  */
-const char * avr_regname(unsigned int reg);
+const char * avr_regname(avr_t * avr, unsigned int reg);
+
+#if CONFIG_SIMAVR_TRACE
 
 /*
  * DEBUG bits follow
@@ -61,23 +62,31 @@ const char * avr_regname(unsigned int reg);
  */
 void avr_dump_state(avr_t * avr);
 
+// In this file there is always an avr!
+
+#define AVR_REGNAME(reg) avr_regname(avr, reg)
+
 #define DUMP_REG() { \
-				for (int i = 0; i < 32; i++) printf("%s=%02x%c", avr_regname(i), avr->data[i],i==15?'\n':' ');\
-				printf("\n");\
-				uint16_t y = avr->data[R_YL] | (avr->data[R_YH]<<8);\
-				for (int i = 0; i < 20; i++) printf("Y+%02d=%02x ", i, avr->data[y+i]);\
-				printf("\n");\
-		}
+	for (int i = 0; i < 32; i++) \
+		printf("%s=%02x%c", AVR_REGNAME(i), avr->data[i], \
+			   (i % 8) == 7 ? '\n' : ' '); \
+	uint16_t y = avr->data[R_YL] | (avr->data[R_YH] << 8); \
+	for (int i = 0; i < 20; i++) \
+		printf("Y+%02d=%02x%c", i, avr->data[y+i], i % 10 == 9 ? '\n' : ' '); \
+	printf("\n"); \
+}
 
 
 #if AVR_STACK_WATCH
 #define DUMP_STACK() \
 		for (int i = avr->trace_data->stack_frame_index; i; i--) {\
 			int pci = i-1;\
-			printf(FONT_RED "*** %04x: %-25s sp %04x\n" FONT_DEFAULT,\
+			printf("%s*** %04x: %-25s sp %04x%s\n",\
+					simavr_font.red, \
 					avr->trace_data->stack_frame[pci].pc, \
 					avr->trace_data->codeline ? avr->trace_data->codeline[avr->trace_data->stack_frame[pci].pc>>1]->symbol : "unknown", \
-							avr->trace_data->stack_frame[pci].sp);\
+					avr->trace_data->stack_frame[pci].sp, \
+					simavr_font.normal);\
 		}
 #else
 #define DUMP_STACK()

@@ -29,6 +29,7 @@ void tx4_init(struct avr_t * avr)
     struct mcu_t * mcu = (struct mcu_t*)avr;
 
     avr_eeprom_init(avr, &mcu->eeprom);
+    avr_flash_init(avr, &mcu->selfprog);
     avr_watchdog_init(avr, &mcu->watchdog);
     avr_extint_init(avr, &mcu->extint);
     avr_ioport_init(avr, &mcu->porta);
@@ -37,6 +38,7 @@ void tx4_init(struct avr_t * avr)
     avr_adc_init(avr, &mcu->adc);
     avr_timer_init(avr, &mcu->timer0);
     avr_timer_init(avr, &mcu->timer1);
+	avr_usi_init(avr, &mcu->usi);
 }
 
 void tx4_reset(struct avr_t * avr)

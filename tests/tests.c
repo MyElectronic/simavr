@@ -20,7 +20,8 @@ static int finished = 0;
 #if defined(__GLIBC__) && !defined(__MINGW32__)
 static FILE *orig_stderr = NULL;
 #define restore_stderr()	{ if (orig_stderr) stderr = orig_stderr; }
-#define map_stderr()		{ if (tests_disable_stdout) { \
+#define map_stderr()		{ if (tests_disable_stdout && \
+								  orig_stderr == NULL) {  \
 								orig_stderr = stderr;	\
 								fclose(stdout);			\
 								stderr = stdout;		\
@@ -117,6 +118,8 @@ static avr_t *tests_init_fw(elf_firmware_t *fwp, const char *filename) {
 
 avr_t *tests_init_avr(const char *elfname) {
 	elf_firmware_t fw = {};
+
+	map_stderr();
 	return tests_init_fw(&fw, elfname);
 }
 
@@ -136,12 +139,20 @@ int tests_run_test(avr_t *avr, unsigned long run_usec) {
 		// setjmp() returned directly, run avr
 		while (1)
 			my_avr_run(avr);
-	} else if (reason == 1) {
-		// returned from longjmp(); cycle timer fired
-		return reason;
-	} else if (reason == 2) {
-		// returned from special deinit, avr stopped
-		return reason;
+	} else {
+		/* Normal cleanup before exit, includes VCD flush. */
+
+		avr->custom.deinit = NULL;
+		avr_terminate(avr);
+
+		if (reason == 1) {
+			// returned from longjmp(); cycle timer fired
+
+			return reason;
+		} else if (reason == 2) {
+			// returned from special deinit, avr stopped
+			return reason;
+		}
 	}
 	fail("Error in test case: Should never reach this.");
 	return 0;

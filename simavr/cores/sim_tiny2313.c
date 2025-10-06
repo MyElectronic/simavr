@@ -22,10 +22,12 @@
 #include "avr_eeprom.h"
 #include "avr_watchdog.h"
 #include "avr_extint.h"
+#include "avr_flash.h"
 #include "avr_ioport.h"
 #include "avr_uart.h"
 #include "avr_timer.h"
 #include "avr_acomp.h"
+#include "avr_usi.h"
 
 static void init(struct avr_t * avr);
 static void reset(struct avr_t * avr);
@@ -43,11 +45,13 @@ static const struct mcu_t {
 	avr_t core;
 	avr_eeprom_t 	eeprom;
 	avr_watchdog_t	watchdog;
+	avr_flash_t 	selfprog;
 	avr_extint_t	extint;
 	avr_ioport_t	porta, portb, portd;
 	avr_uart_t		uart;
 	avr_timer_t		timer0,timer1;
 	avr_acomp_t		acomp;
+	avr_usi_t	    usi;
 } mcu = {
 	.core = {
 		.mmcu = "attiny2313",
@@ -58,6 +62,15 @@ static const struct mcu_t {
 	},
 	AVR_EEPROM_DECLARE_8BIT(EEPROM_READY_vect),
 	AVR_WATCHDOG_DECLARE(WDTCSR, WDT_OVERFLOW_vect),
+	 .selfprog = {
+		.flags = 0,
+		.r_spm = SPMCSR,
+		.spm_pagesize = SPM_PAGESIZE,
+		.selfprgen = AVR_IO_REGBIT(SPMCSR, SPMEN),
+		.pgers = AVR_IO_REGBIT(SPMCSR, PGERS),
+		.pgwrt = AVR_IO_REGBIT(SPMCSR, PGWRT),
+		.blbset = AVR_IO_REGBIT(SPMCSR, RFLB),
+	},
 	.extint = {
 		AVR_EXTINT_TINY_DECLARE(0, 'D', 2, EIFR),
 		AVR_EXTINT_TINY_DECLARE(1, 'D', 3, EIFR),
@@ -199,7 +212,38 @@ static const struct mcu_t {
 			.vector = ANA_COMP_vect,
 		}
 	},
+	.usi = {
+		.r_usicr = USICR,
+		.r_usisr = USISR,
+		.r_usidr = USIDR,
 
+
+		.usipf =  AVR_IO_REGBIT (USISR, USIPF),
+		.usidc =  AVR_IO_REGBIT (USISR, USIDC),
+		.usiwm =  AVR_IO_REGBITS(USICR, USIWM0, 0x3),
+		.usics =  AVR_IO_REGBITS(USICR, USICS0, 0x3),
+		.usiclk = AVR_IO_REGBIT (USICR, USICLK),
+		.usitc =  AVR_IO_REGBIT (USICR, USITC),
+
+		.port_ioctl = AVR_IOCTL_IOPORT_GETIRQ('B'),
+		.pin_di =     AVR_IO_REGBIT(PORTB, 5),
+		.pin_do =     AVR_IO_REGBIT(PORTB, 6),
+		.pin_usck =   AVR_IO_REGBIT(PORTB, 7),
+
+		.usi_start = {
+			.enable = AVR_IO_REGBIT(USICR, USISIE),
+			.raised = AVR_IO_REGBIT(USISR, USISIF),
+			.vector = USI_START_vect,
+			.raise_sticky = 1,
+		},
+
+		.usi_ovf = {
+			.enable = AVR_IO_REGBIT(USICR, USIOIE),
+			.raised = AVR_IO_REGBIT(USISR, USIOIF),
+			.vector = USI_OVERFLOW_vect,
+			.raise_sticky = 1,
+		},
+	}
 };
 
 static avr_t * make()
@@ -218,6 +262,7 @@ static void init(struct avr_t * avr)
 
 	avr_eeprom_init(avr, &mcu->eeprom);
 	avr_watchdog_init(avr, &mcu->watchdog);
+	avr_flash_init(avr, &mcu->selfprog);
 	avr_extint_init(avr, &mcu->extint);
 	avr_ioport_init(avr, &mcu->porta);
 	avr_ioport_init(avr, &mcu->portb);
@@ -226,6 +271,7 @@ static void init(struct avr_t * avr)
 	avr_timer_init(avr, &mcu->timer0);
 	avr_timer_init(avr, &mcu->timer1);
 	avr_acomp_init(avr, &mcu->acomp);
+	avr_usi_init(avr, &mcu->usi);
 }
 
 static void reset(struct avr_t * avr)

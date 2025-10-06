@@ -36,6 +36,7 @@ extern "C" {
 	#define FALLTHROUGH
 #endif
 
+#include <stdint.h>
 #include "sim_irq.h"
 #include "sim_interrupts.h"
 #include "sim_cmds.h"
@@ -95,6 +96,13 @@ enum {
 #define AVR_TRACE(avr, ... ) \
 	AVR_LOG(avr, LOG_TRACE, __VA_ARGS__)
 
+/* The core's own IRQS. */
+
+enum {
+	AVR_CORE_BAD_OPCODE = 0,	// Execution of unknown instruction.
+	AVR_CORE_IRQ_COUNT,
+};
+
 /*
  * Core states.
  */
@@ -106,7 +114,7 @@ enum {
 
 	cpu_Sleeping,	// we're now sleeping until an interrupt
 
-	cpu_Step,		// run ONE instruction, then...
+	cpu_Step,	// run ONE instruction, then...
 	cpu_StepDone,	// tell gdb it's all OK, and give it registers
 	cpu_Done,       // avr software stopped gracefully
 	cpu_Crashed,    // avr software crashed (watchdog fired)
@@ -114,7 +122,9 @@ enum {
 
 // this is only ever used if CONFIG_SIMAVR_TRACE is defined
 struct avr_trace_data_t {
-	struct avr_symbol_t ** codeline;
+	const char **   codeline;       // Text for each Flash address
+	uint32_t        codeline_size;  // Size of codeline table.
+	uint32_t        data_names_size;// Size of data_names table.
 
 	/* DEBUG ONLY
 	 * this keeps track of "jumps" ie, call,jmp,ret,reti and so on
@@ -152,23 +162,26 @@ typedef void (*avr_run_t)(
 #define AVR_FUSE_HIGH	1
 #define AVR_FUSE_EXT	2
 
-#define REG_NAME_COUNT (256 + 32)       // Size of reg_names table.
-
 /*
  * Main AVR instance. Some of these fields are set by the AVR "Core" definition files
  * the rest is runtime data (as little as possible)
  */
 typedef struct avr_t {
-	const char * 		mmcu;	// name of the AVR
+	const char *	 	mmcu;	// name of the AVR
 	// these are filled by sim_core_declare from constants in /usr/lib/avr/include/avr/io*.h
 	uint16_t			ioend;
 	uint16_t 			ramend;
 	uint32_t			flashend;
 	uint32_t			e2end;
 	uint8_t				vector_size;
-	uint8_t				signature[3];
+	uint8_t				resetting; // Set only during avr_reset().
+	// accessible via LPM (BLBSET)
 	uint8_t				fuse[6];
 	uint8_t				lockbits;
+	// accessible via LPM (if SIGRD is present)
+	uint8_t				signature[3];
+	uint8_t				serial[9];
+
 	avr_io_addr_t		rampz;	// optional, only for ELPM/SPM on >64Kb cores
 	avr_io_addr_t		eind;	// optional, only for EIJMP/EICALL on >64Kb cores
 	uint8_t				address_size;	// 2, or 3 for cores >128KB in flash
@@ -305,6 +318,15 @@ typedef struct avr_t {
 		} io[4];
 	} io_shared_io[4];
 
+    // SRAM tracepoint
+    #define SRAM_TRACEPOINT_SIZE 16
+	int				sram_tracepoint_count;
+	struct {
+		struct avr_irq_t * irq;
+		int width;
+		uint16_t addr;
+	} sram_tracepoint[SRAM_TRACEPOINT_SIZE];
+
 	// flash memory (initialized to 0xff, and code loaded into it)
 	uint8_t *		flash;
 	// this is the general purpose registers, IO registers, and SRAM
@@ -312,6 +334,10 @@ typedef struct avr_t {
 
 	// queue of io modules
 	struct avr_io_t * io_port;
+
+	// Core IRQs
+
+	avr_irq_t * irq;
 
 	// Builtin and user-defined commands
 	avr_cmd_table_t commands;
@@ -348,6 +374,10 @@ typedef struct avr_t {
 		uint32_t size;
 		uint32_t len;
 	} io_console_buffer;
+
+	// Table of register names used by gdb and tracing.
+
+	const char ** data_names;
 } avr_t;
 
 
@@ -382,6 +412,21 @@ avr_core_allocate(
 void
 avr_reset(
 		avr_t * avr);
+
+// Get a pointer to a core IRQ.
+
+avr_irq_t *
+avr_get_core_irq(
+		avr_t * avr,
+		int     irq_no);
+
+/* Get a pointer to a memory IRQ. */
+
+avr_irq_t *avr_get_memory_irq(
+		avr_t   * avr,
+		uint16_t  addr,
+		int		  is16);
+
 // run one cycle of the AVR, sleep if necessary
 int
 avr_run(
@@ -483,6 +528,12 @@ avr_pending_sleep_usec(
 uint64_t
 avr_get_time_stamp(
 		avr_t * avr );
+
+/* This function returns a text string describing where in flash the AVR's
+ * PC is pointing.  It requires the CONFIG_SIMAVR_TRACE option.
+ */
+
+const char *avr_where(avr_t *avr);
 
 #ifdef __cplusplus
 };

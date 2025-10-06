@@ -36,9 +36,27 @@ extern "C" {
  * "fake" a non-Harvard addressing space for the AVR
  */
 #define AVR_SEGMENT_OFFSET_FLASH 0
+#define AVR_SEGMENT_OFFSET_DATA   0x00800000
 #define AVR_SEGMENT_OFFSET_EEPROM 0x00810000
+#define AVR_SEGMENT_OFFSET_FUSES  0x00820000
+#define AVR_SEGMENT_OFFSET_LOCK   0x00830000
+#define AVR_SEGMENT_OFFSET_LAST   0x00840000
 
 #include "sim_avr.h"
+
+/* The contents of a firmware file are held as a list of chunks. */
+
+enum mem_type { FLASH, DATA, EEPROM, FUSES, LOCK, UNKNOWN };
+
+typedef struct fw_chunk {
+	enum mem_type    type;
+	uint32_t         addr;
+	uint32_t         size, fill_size;
+	struct fw_chunk *next;
+	uint8_t          data[1];	// Actually defined by 'size', above.
+} fw_chunk_t;
+
+/* A parsed firmware file. */
 
 typedef struct elf_firmware_t {
 	char  mmcu[64];
@@ -51,7 +69,7 @@ typedef struct elf_firmware_t {
 	struct {
 		uint8_t kind;
 		uint8_t mask;
-		uint16_t addr;
+		uint32_t addr; // May be an ioctl value.
 		char	name[64];
 	} trace[32];
 
@@ -64,21 +82,13 @@ typedef struct elf_firmware_t {
 	uint16_t	command_register_addr;
 	uint16_t	console_register_addr;
 
-	uint32_t	flashbase;	// base address
-	uint8_t * 	flash;
-	uint32_t	flashsize;
-	uint32_t 	datasize;
-	uint32_t 	bsssize;
-	// read the .eeprom section of the elf, too
-	uint8_t * 	eeprom;
-	uint32_t 	eesize;
-	uint8_t *	fuse;
-	uint32_t	fusesize;
-	uint8_t *	lockbits;
-
+	uint32_t    flashbase;      // Base/start address.
+	fw_chunk_t *chunks;         // List of data chunks.
 #if ELF_SYMBOLS
 	avr_symbol_t **  symbol;
 	uint32_t	symbolcount;
+	uint32_t	highest_data_symbol;
+	char *		dwarf_file;	// Must be dynamically allocated.
 #endif
 } elf_firmware_t ;
 
@@ -95,6 +105,10 @@ void
 avr_load_firmware(
 	avr_t * avr,
 	elf_firmware_t * firmware);
+
+// DWARF, not ELF, but a separate header for this would be silly.
+
+int avr_read_dwarf(avr_t *avr, const char *filename);
 
 #ifdef __cplusplus
 };
